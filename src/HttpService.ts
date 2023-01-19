@@ -1,121 +1,130 @@
-import 'reflect-metadata';
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { injectable } from 'inversify';
+import { FetchxError } from './errors';
+import { RequestInitWithParams } from './types';
+import { isPlainObject } from './utils';
 
-/**
- * The `HttpService` is a class that will work as a wrapper for [axios](https://github.com/axios/axios). It will handle all the requests and provide helpers to make your life easier.
- * @example ```typescript
- * import { HttpService } from '@euk-labs/fetchx';
- *
- * const http = new HttpService({ baseURL: 'http://localhost:3000' });
- *
- * http.get('/users').then(response => {
- *  console.log(response.data);
- * });
- * ```
- */
-@injectable()
-class HttpService {
-  private _client: AxiosInstance;
-  private _interceptors = {
-    request: new Map<string, number>(),
-    response: new Map<string, number>(),
-  };
-
-  /**
-   *
-   * @param axiosConfig Axios instance configuration. See https://github.com/axios/axios#request-config
-   */
-  constructor(axiosConfig: AxiosRequestConfig) {
-    this._client = axios.create(axiosConfig);
-  }
-
-  /**
-   * Set a new header or change it's value for all requests via header key and value.
-   * @example ```typescript
-   * import { HttpService } from '@euk-labs/fetchx';
-   *
-   * const http = new HttpService({ baseURL: 'http://localhost:3000' });
-   *
-   * http.setHeader('Authorization', 'Bearer 12345');
-   * ```
-   */
-  setHeader(header: string, value: string) {
-    this._client.defaults.headers.common[header] = value;
-  }
-
-  /**
-   *
-   * @param id Used to identify the interceptor and remove it later.
-   * @param onFulfilled Function to be called when a request is successful.
-   * @param onRejected Function to be called when a request fails.
-   * @returns The interceptor id.
-   */
-  setRequestInterceptor<T>(
-    id: string,
-    onFulfilled?: (value: AxiosRequestConfig) => T | Promise<T>,
-    onRejected?: (error: unknown) => unknown
-  ): number {
-    const interceptor = this._client.interceptors.request.use(
-      onFulfilled,
-      onRejected
-    );
-
-    this._interceptors.request.set(id, interceptor);
-
-    return interceptor;
-  }
-
-  /**
-   *
-   * @param id Used to identify the interceptor and remove it later.
-   * @param onFulfilled Function to be called when a request is successful.
-   * @param onRejected Function to be called when a request fails.
-   * @typeParam T The type of the response.
-   * @returns The interceptor id.
-   */
-  setResponseInterceptor<T>(
-    id: string,
-    onFulfilled?: (value: AxiosResponse) => T | Promise<T>,
-    onRejected?: (error: unknown) => unknown
-  ): number {
-    const interceptor = this._client.interceptors.response.use(
-      onFulfilled,
-      onRejected
-    );
-
-    this._interceptors.response.set(id, interceptor);
-
-    return interceptor;
-  }
-
-  /**
-   *
-   * @param id The identifier of the interceptor to be removed.
-   * @param type The type of interceptor to be removed.
-   */
-  ejectInterceptor(id: string, type: 'request' | 'response') {
-    let interceptor;
-
-    if (type === 'request') {
-      interceptor = this._interceptors.request.get(id);
-      if (interceptor !== undefined) {
-        this._client.interceptors.request.eject(interceptor);
-      }
-    } else if (type === 'response') {
-      interceptor = this._interceptors.response.get(id);
-      if (interceptor !== undefined) {
-        this._client.interceptors.response.eject(interceptor);
-      }
-    }
-  }
-
-  /**
-   * An axios instance that can be used to make requests.
-   */
-  get client() {
-    return this._client;
-  }
+interface HttpServiceConfig {
+  baseURL: URL;
+  defaultHeaders: Record<string, string>;
+  credentials?: RequestCredentials;
 }
 
-export default HttpService;
+export interface HttpServiceOptions
+  extends Omit<HttpServiceConfig, 'defaultHeaders'> {
+  defaultHeaders?: Record<string, string>;
+}
+
+export type InterceptorFn = (
+  meta: { path: string; config?: RequestInitWithParams },
+  nextFn: () => Promise<Response>
+) => Promise<Response>;
+
+export class HttpService {
+  readonly config: HttpServiceConfig;
+  private interceptors: Map<string, InterceptorFn> = new Map();
+
+  constructor(readonly options: HttpServiceOptions) {
+    this.config = {
+      ...options,
+      defaultHeaders: {
+        Accept: 'application/json, text/plain, */*',
+        ...options.defaultHeaders,
+      },
+    };
+  }
+
+  private async nativeFetch(path: string, config?: RequestInitWithParams) {
+    const { defaultHeaders, baseURL, ...defaultConfigs } = this.config;
+    const url = new URL(baseURL.toString() + path);
+    const headers = new Headers(defaultHeaders);
+    let body: BodyInit | undefined;
+
+    if (config?.params) {
+      if (config.params instanceof URLSearchParams) {
+        config.params.forEach((value, key) => {
+          url.searchParams.set(key, value);
+        });
+      }
+
+      if (typeof config.params === 'object') {
+        Object.entries(config.params).forEach(([key, value]) => {
+          url.searchParams.set(key, value);
+        });
+      }
+    }
+
+    if (config?.headers) {
+      if (config.headers instanceof Headers) {
+        config.headers.forEach((value, key) => {
+          headers.set(key, value);
+        });
+      }
+
+      if (Array.isArray(config.headers)) {
+        config.headers.forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+      }
+
+      if (typeof config.headers === 'object') {
+        Object.entries(config.headers).forEach(([key, value]) => {
+          headers.set(key, value);
+        });
+      }
+    }
+    if (config?.body) {
+      if (typeof config.body === 'object' && isPlainObject(config.body)) {
+        body = JSON.stringify(config.body);
+        headers.set('Content-Type', 'application/json');
+      } else {
+        body = config.body;
+      }
+    }
+
+    const response = await fetch(url, {
+      ...defaultConfigs,
+      ...config,
+      body,
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new FetchxError({ ...config, headers }, response);
+    }
+
+    return response;
+  }
+
+  async fetch(
+    path: string,
+    config = {} as RequestInitWithParams
+  ): Promise<Response> {
+    const fetchFn = this.nativeFetch.bind(this);
+    const interceptors = Array.from(this.interceptors.values());
+    let next = 0;
+
+    async function nextFn() {
+      const interceptor = interceptors[next++];
+      const meta = { path, config };
+
+      if (!interceptor) {
+        return await fetchFn(path, config);
+      }
+
+      return await interceptor(meta, nextFn);
+    }
+
+    return await nextFn();
+  }
+
+  setHeader(header: string, value: string) {
+    this.config.defaultHeaders[header] = value;
+  }
+
+  setInterceptor(id: string, interceptor: InterceptorFn) {
+    this.interceptors.set(id, interceptor);
+  }
+
+  removeInterceptor(id: string) {
+    this.interceptors.delete(id);
+  }
+}

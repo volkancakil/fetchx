@@ -1,4 +1,4 @@
-import { Repository } from '../src';
+import { Repository } from '../src/Repository';
 import httpService from './fixtures/httpService';
 import mockServer from './fixtures/server';
 import {
@@ -7,6 +7,7 @@ import {
   UserResponse,
   UsersResponse,
 } from './fixtures/users';
+import { afterAll, describe, expect, it } from 'vitest';
 
 const server = mockServer();
 
@@ -35,11 +36,12 @@ describe('Repository', () => {
 
   it('should Read all entities with params', async () => {
     const entities = await repository.read<UsersResponse>({
-      name: 'John',
+      params: {
+        name: 'Testerson',
+      },
     });
 
-    expect(entities.config.params).toEqual({ name: 'John' });
-    expect(entities.data.users).toContainEqual({ ...defaultUser, id: '1' });
+    expect(entities.data.users).toHaveLength(0);
   });
 
   it('should Read an entity', async () => {

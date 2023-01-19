@@ -1,25 +1,31 @@
 import React from 'react';
 import mockServer from './fixtures/server';
-import faker from 'faker';
+import { faker } from '@faker-js/faker';
+
 import { getByTestId, render, waitFor } from '@testing-library/react';
 import UserPage from './fixtures/UserPage';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 
 const INITIAL_USERS = 1;
 const server = mockServer();
 
 describe('useEntity', () => {
-  let consoleSpy: jest.SpyInstance;
-
-  beforeEach(() => {
-    if (consoleSpy) {
-      consoleSpy.mockRestore();
-    }
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   beforeAll(() => {
     for (let index = 0; index < INITIAL_USERS; index++) {
       (server as any).create('user', {
-        name: faker.name.findName(),
+        name: faker.name.fullName(),
         email: faker.internet.email(),
       });
     }
@@ -43,13 +49,13 @@ describe('useEntity', () => {
   });
 
   it('should warn about fetching without identifier', () => {
-    consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => null);
 
     const { container } = render(<UserPage forceFetch />);
     const userDisplay = getByTestId(container, 'user');
 
     expect(userDisplay.textContent).toContain('No identifier provided!');
-    expect(console.warn).toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalled();
   });
 
   it('should show user data', async () => {
@@ -80,7 +86,7 @@ describe('useEntity', () => {
   });
 
   it('should warn on update without identifier', async () => {
-    consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => null);
 
     const { container } = render(<UserPage forceUpdate />);
     const userDisplay = getByTestId(container, 'user');
@@ -90,7 +96,7 @@ describe('useEntity', () => {
     });
 
     await waitFor(() => {
-      expect(console.warn).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalled();
     });
   });
 
@@ -124,7 +130,7 @@ describe('useEntity', () => {
   });
 
   it('should warn on delete without identifier', async () => {
-    consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => null);
 
     const { container } = render(<UserPage forceDelete />);
     const userDisplay = getByTestId(container, 'user');
@@ -134,7 +140,7 @@ describe('useEntity', () => {
     });
 
     await waitFor(() => {
-      expect(console.warn).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalled();
     });
   });
 
